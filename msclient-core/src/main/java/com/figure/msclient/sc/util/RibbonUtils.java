@@ -1,0 +1,81 @@
+package com.figure.msclient.sc.util;
+
+import com.figure.msclient.sc.client.MSServerIntrospector;
+import com.netflix.client.config.CommonClientConfigKey;
+import com.netflix.client.config.IClientConfig;
+import com.netflix.loadbalancer.Server;
+import org.springframework.web.util.UriComponentsBuilder;
+
+import java.net.URI;
+
+/**
+ * Created by chuanbo.wei on 2017/3/19.
+ */
+public class RibbonUtils {
+    public static final String VALUE_NOT_SET = "__not__set__";
+
+    public static final String DEFAULT_NAMESPACE = "ribbon";
+
+//    public static void setRibbonProperty(String serviceId, String suffix, String value) {
+//        // how to set the namespace properly?
+//        String key = getRibbonKey(serviceId, suffix);
+//        DynamicStringProperty property = getProperty(key);
+//        if (property.get().equals(VALUE_NOT_SET)) {
+//            ConfigurationManager.getConfigInstance().setProperty(key, value);
+//        }
+//    }
+
+    public static String getRibbonKey(String serviceId, String suffix) {
+        return serviceId + "." + DEFAULT_NAMESPACE + "." + suffix;
+    }
+
+//    public static DynamicStringProperty getProperty(String key) {
+//        return DynamicPropertyFactory.getInstance().getStringProperty(key, VALUE_NOT_SET);
+//    }
+
+    /**
+     * Determine if client is secure. If the supplied {@link com.netflix.client.config.IClientConfig} has the {@link com.netflix.client.config.CommonClientConfigKey#IsSecure}
+     * set, return that value. Otherwise, query the supplied {@link MSServerIntrospector}.
+     * @param config the supplied client configuration.
+     * @param serverIntrospector
+     * @param server
+     * @return true if the client is secure
+     */
+    public static boolean isSecure(IClientConfig config, MSServerIntrospector serverIntrospector, Server server) {
+        if (config != null) {
+            Boolean isSecure = config.get(CommonClientConfigKey.IsSecure);
+            if (isSecure != null) {
+                return isSecure;
+            }
+        }
+
+        return serverIntrospector.isSecure(server);
+    }
+
+    /**
+     * Replace the scheme to https if needed. If the uri doesn't start with https and
+     * {@link #isSecure(com.netflix.client.config.IClientConfig, MSServerIntrospector, com.netflix.loadbalancer.Server)} is true, update the scheme.
+     * This assumes the uri is already encoded to avoid double encoding.
+     *
+     * @param uri
+     * @param config
+     * @param serverIntrospector
+     * @param server
+     * @return
+     */
+    public static URI updateToHttpsIfNeeded(URI uri, IClientConfig config, MSServerIntrospector serverIntrospector,
+                                            Server server) {
+        String scheme = uri.getScheme();
+        if (!"".equals(uri.toString()) && !"https".equals(scheme) && isSecure(config, serverIntrospector, server)) {
+            UriComponentsBuilder uriComponentsBuilder = UriComponentsBuilder.fromUri(uri).scheme("https");
+            if (uri.getRawQuery() != null) {
+                // When building the URI, UriComponentsBuilder verify the allowed characters and does not
+                // support the '+' so we replace it for its equivalent '%20'.
+                // See issue https://jira.spring.io/browse/SPR-10172
+                uriComponentsBuilder.replaceQuery(uri.getRawQuery().replace("+", "%20"));
+            }
+            return uriComponentsBuilder.build(true).toUri();
+        }
+        return uri;
+    }
+}
