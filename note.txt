@@ -1,0 +1,183 @@
+## MSClient使用说明
+
+<br/>
+### 版本说明
+2.0-SNAPSHOT：增加熔断限流功能
+
+<br/>
+### 1、  引入jar包
+
+&ensp;&lt;dependency&gt;
+&ensp;&ensp;&lt;groupId&gt;com.figure&lt;/groupId&gt;
+&ensp;&ensp;&lt;artifactId&gt;msclient-core&lt;/artifactId&gt;
+&ensp;&ensp;&lt;version&gt;2.0-SNAPSHOT&lt;/version&gt;
+&ensp;&lt;/dependency&gt;
+
+<br/>
+如使用spring boot启动器，增加如下依赖
+
+   &ensp;&lt;dependency&gt;
+       &ensp;&ensp;&lt;groupId&gt;com.figure&lt;/groupId&gt;
+       &ensp;&ensp;&lt;artifactId&gt;spring-boot-starter-msclient&lt;/artifactId&gt;
+       &ensp;&ensp;&lt;version&gt;1.0-SNAPSHOT&lt;/version&gt;
+   &ensp;&lt;/dependency&gt;
+
+<br/>
+### 2、最小化配置
+MSClient支持从XConfig配置中心和classpath中加载properties两种方式读取全局配置，properties方式时，文件名必须为ds.properties，且在当前classpath下。
+如下为properties样例:
+
+&ensp;#dubbo注册中心协议，默认使用zk
+&ensp;base-zk.registry=zookeeper
+&ensp;#dubbo注册中心地址
+&ensp;base-zk.inner.connStr=XXX.XX.XX.XXX:2181,XX.XX.XX.XXX:2181
+
+<br/>
+&ensp;#eureka服务地址
+&ensp;base-eureka.node1=http://XXX.XX.XX.XXX:8761/eureka,http://XXX.XX.XX.XXX:8761/eureka
+
+
+<br/>
+如果dubbo和spring cloud只使用其中之一时，只需配置对应的配置即可
+
+<br/>
+### 3、spring初始化
+支持xml和yml两种方式，分别为：
+&ensp;1）xml方式
+   &ensp;&lt;bean id="msClientService" class="com.figure.msclient.MSClientService" init-method="init"&gt;
+            &ensp;&ensp;&lt;property name="appName" value="openapi-ops-web"/&gt;
+            &ensp;&ensp;<!--&lt;property name="loader" value="com.figure.msclient.config.loader.XConfigConfigLoader"/&gt;-->
+            &ensp;&ensp;<!--&lt;property name="model" value="FULL"/&gt;-->
+           &ensp;&ensp;<!--&lt;property name="provide" ref="msRegisterProvide"/&gt;-->
+   &ensp;&lt;/bean&gt;
+
+<br/>
+&ensp;2）application.yml方式
+   &ensp;msclient:
+   &ensp;&ensp;appName: zapi-service
+   &ensp;&ensp;#loader: com.figure.msclient.config.loader.PropertiesConfigLoader
+   &ensp;&ensp;#model: FULL
+
+<br/>
+配置项说明
+appName：如使用XConfig配置时，对应XConfig的project值，其他无要求。
+loader：设置配置加载器，ConfigLoader接口默认实现有XConfig和properties两种，分别为&ensp;&ensp;com.figure.msclient.config.loader.XConfigConfigLoader、com.figure.msclient.config.loader.PropertiesConfigLoader，默认使用XConfig
+model：标示MSClient运行在哪个模式下，选项为：MSClientModel.DUBBO、MSClientModel.SPRINGCLOUD、MSClientModel.FULL，默认使用FULL
+provide：MsReferenceProvide接口实现类，当不通过ms-config.xml配置文件，加载应用服务时，可使用实现该接口
+
+<br/>
+### 4、加载需要调用的服务
+提供两种方式，如下：
+
+1）在当前应用的classpath下增加ms-config.xml文件，样例如下：
+&ensp;&lt;?xml version="1.0" encoding="UTF-8" ?&gt;
+&ensp;&lt;references>
+	&ensp;&ensp;&lt;reference id="user" serviceId="com.figure.user.dubbo.IBaseUserTokenService" version="1.0" group="" protocol="0" desc=""/&gt;
+	&ensp;&ensp;&lt;reference id="userService" serviceId="user-service" version="" group="" protocol="1" desc=""/&gt;
+&ensp;&lt;/references&gt;
+
+<br/>
+2）增加实现MsReferenceProvide接口类，示例代码如下：
+
+```java
+@Component("msRegisterProvide")
+public class MsRegisterProvideTest implements MsReferenceProvide {
+
+    public final static String SERVICE_ID_USERCENTER = "user";
+
+    public final static String SERVICE_ID_ZID = "userService";
+
+    @Override
+    public List<ReferenceBean> getReferences() {
+        List<ReferenceBean> beans = new ArrayList<ReferenceBean>();
+        beans.add(new ReferenceBean(SERVICE_ID_USERCENTER, "com.figure.user.dubbo.IBaseUserTokenService", "1.0",0));
+        beans.add(new ReferenceBean(SERVICE_ID_ZID, "user-service", 1));
+        return beans;
+    }
+}
+
+```
+
+<br/>
+配置项说明
+id：服务唯一标示
+serviceId：dubbo服务时，为接口类全路径，如：com.figure.device.iface.IDeviceService，springcloud时为应用名，对应spring.application.name配置
+version：服务接口版本号
+group：服务接口分组，只dubbo服务使用
+protocol：RPC类型，0:dubbo，1:springcloud，2:dubbox
+desc：描述
+
+
+<br/>
+### 5、代码示例
+<!--
+<a href="http://XXX.XXX.XX.XX/msclient/blob/master/src/test/java/com/figure/msclient/MSClientTest.java" target="_blank">示例代码</a> -->
+调用spring cloud服务：
+
+```java
+   @Autowired
+   private MSClientService msClientService;
+
+   String methodName = "/user/mpauth/1.0/mobileVerifyQrCode";
+   String requestType = HttpRequestMethod.GET.getType();
+   List<ParaMeta> paraList = new ArrayList<ParaMeta>();
+   paraList.add(new ParaMeta("token", "A5BB389B0D8B82E1E16A1EDE84B92C84"));
+   paraList.add(new ParaMeta("qrcode",  "1"));
+
+   try {
+            Map<String, Object> o = msClientService.invoke(MsRegisterProvideTest.SERVICE_ID_ZID, methodName, requestType, paraList);
+            logger.info(o);
+   } catch (MSClientException e) {
+           e.printStackTrace();
+   }
+```
+<br/>
+调用dubbo服务：
+```java
+@Autowired
+private MSClientService msClientService;
+
+String methodName = "getPlatformTokenDetailInfo";
+List<ParaMeta> paraList = new ArrayList<ParaMeta>();
+paraList.add(new ParaMeta("platformToken", "11111111-7475-4f81-aa82-2b616a561590", ParamType.STRING));
+
+ try {
+            Map<String, Object> o = msClientService.invoke(MsRegisterProvideTest.SERVICE_ID_USERCENTER, methodName, null, paraList);
+            logger.info(o.toString());
+ } catch (MSClientException e) {
+            e.printStackTrace();
+ }
+```
+
+<br/>
+### 6、调用异常码
+
+       UNKNOWN_EXP("0001", "未知服务异常"),
+       NETWORK_EXP("0002", "网络异常"),
+       NO_PROVIDER("0003", "无服务提供者，请确认服务是否启动、注册或被禁止调用"),
+       SERIALIZATION("0004", "序列化错误"),
+       TIMEOUT("0005", "服务超时"),
+       NO_SUCH_METHOD("0006", "方法不存在或方法参数、类型不匹配"),
+       BIZ_EXP("0007", "业务服务异常"),
+       CIRCUIT_BREAKER_EXP("0008", "熔断机制"),
+       IO_EXP("0011", "I/O异常"),
+       MS_NOT_INIT_EXP("0012", "无服务信息，确认服务是否登记成功"),
+
+<br/>
+### 6、其他
+1）当使用XConfig做配置时，注意不要遗漏了对应服务注册中心的依赖配置，如当前应用为dubbo服务，需要调用spring cloud服务，则当前应用在XConfig中需要依赖base-eureka配置。
+
+<br/>
+2）熔断限流配置项说明如下：
+#采用信号量隔离时，最大并发请求量，超过该值时则拒绝请求；msclient默认为80。
+ms.executionIsolationSemaphoreMaxConcurrentRequests=80
+<br/>
+#调用依赖超时时间毫秒数，如超时则抛出HystrixTimeoutException；executionTimeoutEnabled=true时有效，默认5秒
+ms.executionTimeoutInMilliseconds=5000
+<br/>
+#失败请求量占总请求量的百分比大于该值时，开启熔断；失败请求包括异常、超时、超线程数拒绝、超信号量拒绝，默认50%
+ms.circuitBreakerErrorThresholdPercentage=50
+<br/>
+#熔断后，允许再次尝试请求的间隔毫秒数，默认3秒
+ms.circuitBreakerSleepWindowInMilliseconds=3000
+
